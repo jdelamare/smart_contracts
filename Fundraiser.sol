@@ -1,11 +1,11 @@
 pragma solidity ^0.4.22;
 
 contract Fundraiser {
-    address owner;
+    address public owner;
     //target fundraising value
-    uint target;
+    uint public target;
     //time that fundraiser ends
-    uint endTime;
+    uint public endTime;
     //list of contributors
     Contributor[] contributors;
     
@@ -44,4 +44,7 @@ contract Fundraiser {
         selfdestruct(owner);
     }
     
+    function balance() public view returns(uint){
+       return address(this).balance;
+    }
 }
