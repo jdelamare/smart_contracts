@@ -13,6 +13,7 @@ contract Escrow {
     constructor(address _receiver, address _agent, uint timeBeforeExpiration) public payable {
         receiver = _receiver;
         agent = _agent;
+        sender = msg.sender;
         expirationTime = now + timeBeforeExpiration;
     }
     
@@ -32,4 +33,7 @@ contract Escrow {
         selfdestruct(receiver);
     }
     
+    function balance() public view returns(uint){
+       return address(this).balance;
+    }
 }
