@@ -1,78 +1,82 @@
 // Version of Solidity compiler this program was written for
-pragma solidity ^0.4.11;
+pragma solidity ^0.4.22;
 
 // Our first contract is a faucet!
 contract Lottery {
     struct Contestant {
-        address contestant;
+        address addr;
         uint bet_amount;
-        uint rand_val;
+        bool valid;
     }
-    
-    struct Contest {
-        uint num_contestants;
-        uint jackpot;    // Current state of the lottery
-        uint lottery_end;
-        bool ended;    // Set to true at the end, disallows any change.
-        mapping (uint => Contestant) contestants;
-    }
+    mapping (bytes32 => Contestant) hash_to_contestant;
+    bytes32 [] hashes;
+    uint lottery_end;       // in seconds
+    uint confirmation_end;
+    uint num_contestants;
+    uint jackpot;
     
     // Events that will be fired on changes
     event jackpot_increased(uint jackpot);
-    event lottery_ended(address winner, uint jackpot);
-
-    uint num_lotteries;
-    mapping (uint => Contest) contests;
+    event lottery_ended(uint jackpot);
+    event winner_chosen(address winner);
     
-    function new_lottery() public returns (uint lottery_id) {
-        lottery_id = num_lotteries++; // lottery_id is return variable
-        uint betting_time = 360;
-        // Creates new struct and saves in storage. We leave out the mapping type and array.
-        contests[lottery_id] = Contest(0, 0, now + betting_time, false);
+    constructor(
+        uint betting_time,
+        uint confirmation_time
+    ) public payable {
+        lottery_end = now + betting_time;
+        confirmation_end = lottery_end + 60;
     }
-    
-    // msg.value contains the bet amount
-    function bet(uint lottery_id, uint rand_val) public payable{
+     
+    function bet(bytes32 hash) public payable {
         require(msg.value >= 0.001 ether);
-        // require the bet amount is divisible by 0.001 ether else remainder discarded
         require(
-            now <= contests[num_lotteries-1].lottery_end,
+            now <= lottery_end,
             "lottery is over"
         );
-        // rand val between 2^10 and 2^32
-        require(rand_val >= 1024 && rand_val <= 4294967296);
-        
-        Contest storage c = contests[lottery_id];
-        c.contestants[c.num_contestants] = Contestant({
-                contestant: msg.sender, 
-                bet_amount: msg.value,
-                rand_val: rand_val 
-            });
-        c.jackpot += msg.value;
-        c.num_contestants++;
-        emit jackpot_increased(c.jackpot);
+        // require that you can only bet once
+        jackpot += msg.value;
+        hash_to_contestant[hash].addr = msg.sender;
+        hash_to_contestant[hash].bet_amount = msg.value;
+        hash_to_contestant[hash].valid = false;
+        hashes.push(hash);
+        num_contestants++;
+        emit jackpot_increased(jackpot);
     }
     
-    function select_winner(uint lottery_id) public {
-        Contest storage c = contests[lottery_id];
-        uint val_to_hash;
-        for (uint8 i = 0; i < c.num_contestants; i++) {
-            val_to_hash += c.contestants[i].rand_val;
+    function select_winner() public view returns (uint) {
+        uint running_total;
+        uint win_value;
+        for (uint8 i = 0; i < num_contestants; i++) {
+            win_value += uint(hashes[i]);
         }
-        uint8 progress = 0;
-        uint8 win_post = random(val_to_hash); // first contenstant to surpass post wins
-        for (uint8 j = 0; j < c.num_contestants; j++) {
-            progress += uint8(c.contestants[i].bet_amount);
-            if (progress > win_post) {
-                //address winner = c.contestants[i].contestant;
-                c.contestants[i].contestant.transfer(c.jackpot);
-                break;
+        win_value = win_value % jackpot;
+
+        for (uint8 j = 0; j < num_contestants; j++) {
+            // for each hash grab that contestants bet amount
+            running_total += hash_to_contestant[hashes[j]].bet_amount;
+            if (running_total >= win_value) {
+                // emit the winner has been chosen (address of winner)
+                if (hash_to_contestant[hashes[j]].valid) {
+                    Contestant winner = hash_to_contestant[hashes[j]];
+                    emit winner_chosen(winner.addr);
+                    winner.addr.transfer(jackpot);
+                    return winner.bet_amount;
+                }
+                // else their plain text value is a lie, next possible winner
             }
         }
+        return 1;
     }
     
-    // need to send hash value not random number...
-    function random(uint val_to_hash) private view returns (uint8) {
-        return uint8(uint256(keccak256(abi.encodePacked(val_to_hash)))%251);
+    // once betting_time is up everybody sends in their number
+    function confirm_number(uint revealed_number) public {
+        if (hash_to_contestant[confirm_hash(revealed_number)].addr == msg.sender) {
+            hash_to_contestant[confirm_hash(revealed_number)].valid = true;
+        }
+    }
+    
+    function confirm_hash(uint val_to_hash) public pure returns (bytes32) {
+        return keccak256(abi.encodePacked(val_to_hash));
     }
 }
